@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://jdomantas.github.io/blog/</loc>
+    </url>
+    <url>
+        <loc>https://jdomantas.github.io/blog/about/</loc>
+    </url>
+    <url>
+        <loc>https://jdomantas.github.io/blog/first/</loc>
+        <lastmod>2021-07-25</lastmod>
+    </url>
+    <url>
+        <loc>https://jdomantas.github.io/blog/page/1/</loc>
+    </url>
+    <url>
+        <loc>https://jdomantas.github.io/blog/tags/</loc>
+    </url>
+    <url>
+        <loc>https://jdomantas.github.io/blog/tags/post/</loc>
+    </url>
+    <url>
+        <loc>https://jdomantas.github.io/blog/tags/rust/</loc>
+    </url>
+</urlset>

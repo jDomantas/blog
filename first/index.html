@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  
+<title>Self referential types in safe rust | jDomantas blog</title>
+
+
+
+<meta property="og:title" content="Self referential types in safe rust">
+
+
+
+
+<meta property="og:locale" content="en-US">
+
+
+<meta name="description" content="writing about shit">
+<meta property="og:description" content="writing about shit">
+
+
+
+<link rel="canonical" href="https://jdomantas.github.io/blog/first/">
+<meta property="og:url" content="https://jdomantas.github.io/blog/first/">
+
+
+
+<meta property="og:site_name" content="jDomantas blog" />
+
+
+
+
+
+  <meta property="og:type" content="article" />
+  <meta property="article:published_time" content="2021-07-25T00:00:00+00:00">
+
+
+
+
+
+
+
+  <meta name="twitter:card" content="summary">
+
+
+
+  <meta property="twitter:title" content="Self referential types in safe rust">
+
+
+
+
+
+
+
+
+<script type="application/ld+json">
+{
+  "author": {
+    "@type":"Person",
+	  "name":"",
+  },
+  "description": "writing about shit",
+  "url": "https://jdomantas.github.io/blog/first/",
+  "@context":"https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Self referential types in safe rust"
+  
+    
+    
+      "datePublished":"2021-07-25T00:00:00+00:00",
+    
+    "mainEntityOfPage":{
+      "@type":"WebPage",
+      "@id":"https://jdomantas.github.io/blog/first/"
+    },
+  
+}
+</script>
+
+  <link rel="stylesheet" href="https://jdomantas.github.io/blog/main.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Libre+Baskerville:400,400i,700">
+
+  <link rel="icon" type="image/png" sizes="32x32" href="https://jdomantas.github.io/blog/assets/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="https://jdomantas.github.io/blog/assets/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="https://jdomantas.github.io/blog/assets/apple-touch-icon.png">
+
+  
+
+  
+
+  
+  
+</head>
+
+<body>
+  
+  <nav class="nav">
+    <div class="nav-container">
+      <a href="https://jdomantas.github.io/blog">
+        <h2 class="nav-title">jDomantas blog</h2>
+      </a>
+      <ul>
+        
+          
+            <li><a href="https://jdomantas.github.io/blog">Posts</a></li>
+          
+            <li><a href="https://jdomantas.github.io/blog/about">About</a></li>
+          
+        
+      </ul>
+    </div>
+  </nav>
+  
+
+  <main>
+    
+  <div class="post">
+  	<div class="post-info">
+  		
+  		<!-- <span>on&nbsp;</span> --><time datetime="2021-07-25">July 25, 2021</time>
+  	</div>
+  	<h1 class="post-title">Self referential types in safe rust</h1>
+  	<div class="post-line"></div>
+  	<p>Every once in a while a post pops up on <a href="reddit.com/r/rust">/r/rust</a>: someone tries to create a struct that contains references into itself, gets a bunch of lifetime errors, tries to follow compiler suggestions, adds a bunch of lifetime annotations, gets more compiler errors, and posts it on reddit asking for help.
+The most common answer (mine included) to these questions is &quot;You are trying to create a self referential type. It is not possible in safe rust. Rethink your design to avoid this.&quot;</p>
+<p>But self referential types are (technically) possible in safe rust.
+So I wanted to exlore for a [TODO: finish]
+This time we'll go the other way.
+We'll show that self referential types are possible in safe rust.
+Along the way we'll see what limitations they impose.
+And of course there's going to be a healthy dose of rustc complaining about the nonsense code we're trying to compile.</p>
+<h2 id="self-referential-types-the-basics">Self referential types - the basics</h2>
+<p>Let's start with the most basic thing. Let's make a struct containing a list of integers, and a reference to one of those integers:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#c0c5ce;">#[</span><span style="color:#bf616a;">derive</span><span style="color:#c0c5ce;">(Debug)]</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">ListWithReference {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">integers</span><span style="color:#c0c5ce;">: Vec&lt;</span><span style="color:#b48ead;">i32</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#c0c5ce;">
+    </span><span style="color:#65737e;">// needs to point at some element in self.integers</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">reference</span><span style="color:#c0c5ce;">: &amp;</span><span style="color:#b48ead;">i32</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>Compiler complains:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">&gt; cargo run</span><span style="color:#c0c5ce;">
+   Compiling self-referential v0.1.0</span><span style="color:#c0c5ce;">
+error[E0106]: missing lifetime specifier</span><span style="color:#c0c5ce;">
+ --&gt; src\main.rs:4:16</span><span style="color:#c0c5ce;">
+  |</span><span style="color:#c0c5ce;">
+5 |     reference: &amp;i32,</span><span style="color:#c0c5ce;">
+  |                ^ expected named lifetime parameter</span><span style="color:#c0c5ce;">
+  |</span><span style="color:#c0c5ce;">
+help: consider introducing a named lifetime parameter</span><span style="color:#c0c5ce;">
+  |</span><span style="color:#c0c5ce;">
+2 | struct ListWithReference&lt;&#39;a&gt; {</span><span style="color:#c0c5ce;">
+3 |     integers: Vec&lt;i32&gt;,</span><span style="color:#c0c5ce;">
+4 |     // needs to point at some element in self.integers</span><span style="color:#c0c5ce;">
+5 |     reference: &amp;&#39;a i32,</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>Of course, for references stored inside structs we always need an explicit lifetime parameter.
+Compiler suggests to add a lifetime on the struct, which is in fact the only option we have (well, we can also use a <code>'static</code> lifetime, but the reference obviously won't be <code>'static</code> for our use-case).
+Let's do that.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#65737e;">// &#39;a is the lifetime of our struct, I guess?</span><span style="color:#c0c5ce;">
+#[</span><span style="color:#bf616a;">derive</span><span style="color:#c0c5ce;">(Debug)]</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">ListWithReference&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">integers</span><span style="color:#c0c5ce;">: Vec&lt;</span><span style="color:#b48ead;">i32</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">reference</span><span style="color:#c0c5ce;">: &amp;</span><span style="color:#b48ead;">&#39;a i32</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>Easy peasy.
+Let's try to create an instance:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#c0c5ce;">#[</span><span style="color:#bf616a;">derive</span><span style="color:#c0c5ce;">(Debug)]</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">ListWithReference&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">integers</span><span style="color:#c0c5ce;">: Vec&lt;</span><span style="color:#b48ead;">i32</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">reference</span><span style="color:#c0c5ce;">: &amp;</span><span style="color:#b48ead;">&#39;a i32</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">let mut</span><span style="color:#c0c5ce;"> list = ListWithReference {</span><span style="color:#c0c5ce;">
+        integers: vec![</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">],</span><span style="color:#c0c5ce;">
+        </span><span style="color:#65737e;">// list.integers is not in scope yet,</span><span style="color:#c0c5ce;">
+        </span><span style="color:#65737e;">// let&#39;s use a placeholder for now</span><span style="color:#c0c5ce;">
+        reference: &amp;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+    };</span><span style="color:#c0c5ce;">
+    </span><span style="color:#65737e;">// and initialize later</span><span style="color:#c0c5ce;">
+    list.reference = &amp;list.integers[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+    println!(&quot;</span><span style="color:#d08770;">{:?}</span><span style="color:#c0c5ce;">&quot;, list);</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>And see if it works:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">&gt; cargo run</span><span style="color:#c0c5ce;">
+   Compiling self-referential v0.1.0</span><span style="color:#c0c5ce;">
+    Finished dev [unoptimized + debuginfo] target(s) in 0.62s</span><span style="color:#c0c5ce;">
+     Running `target\debug\self-referential.exe`</span><span style="color:#c0c5ce;">
+ListWithReference { integers: [2, 3, 5, 7], reference: 5 }</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>Looks pretty straightforward. Now, being clean-code writing programmers that we are, let's move the code that's creating the <code>ListWithReference</code> into a separate function:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#c0c5ce;">#[</span><span style="color:#bf616a;">derive</span><span style="color:#c0c5ce;">(Debug)]</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">ListWithReference&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">integers</span><span style="color:#c0c5ce;">: Vec&lt;</span><span style="color:#b48ead;">i32</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">reference</span><span style="color:#c0c5ce;">: &amp;</span><span style="color:#b48ead;">&#39;a i32</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">impl</span><span style="color:#c0c5ce;">&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; ListWithReference&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">new</span><span style="color:#c0c5ce;">() -&gt; </span><span style="color:#b48ead;">Self </span><span style="color:#c0c5ce;">{</span><span style="color:#c0c5ce;">
+        </span><span style="color:#b48ead;">let mut</span><span style="color:#c0c5ce;"> list = ListWithReference {</span><span style="color:#c0c5ce;">
+            integers: vec![</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">],</span><span style="color:#c0c5ce;">
+            reference: &amp;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+        };</span><span style="color:#c0c5ce;">
+        list.reference = &amp;list.integers[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];</span><span style="color:#c0c5ce;">
+        list</span><span style="color:#c0c5ce;">
+    }</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> list = ListWithReference::new();</span><span style="color:#c0c5ce;">
+    println!(&quot;</span><span style="color:#d08770;">{:?}</span><span style="color:#c0c5ce;">&quot;, list);</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>Whoops, somehow that broke it:</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">&gt; cargo run</span><span style="color:#c0c5ce;">
+   Compiling self-referential v0.1.0</span><span style="color:#c0c5ce;">
+error[E0515]: cannot return value referencing local data `list.integers`</span><span style="color:#c0c5ce;">
+  --&gt; src\main.rs:14:9</span><span style="color:#c0c5ce;">
+   |</span><span style="color:#c0c5ce;">
+13 |         list.reference = &amp;list.integers[2];</span><span style="color:#c0c5ce;">
+   |                           ------------- `list.integers` is borrowed here</span><span style="color:#c0c5ce;">
+14 |         list</span><span style="color:#c0c5ce;">
+   |         ^^^^ returns a value referencing data owned by the current function</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+error[E0505]: cannot move out of `list` because it is borrowed</span><span style="color:#c0c5ce;">
+  --&gt; src\main.rs:14:9</span><span style="color:#c0c5ce;">
+   |</span><span style="color:#c0c5ce;">
+7  | impl&lt;&#39;a&gt; ListWithReference&lt;&#39;a&gt; {</span><span style="color:#c0c5ce;">
+   |      -- lifetime `&#39;a` defined here</span><span style="color:#c0c5ce;">
+...</span><span style="color:#c0c5ce;">
+13 |         list.reference = &amp;list.integers[2];</span><span style="color:#c0c5ce;">
+   |                           ------------- borrow of `list.integers` occurs here</span><span style="color:#c0c5ce;">
+14 |         list</span><span style="color:#c0c5ce;">
+   |         ^^^^</span><span style="color:#c0c5ce;">
+   |         |</span><span style="color:#c0c5ce;">
+   |         move out of `list` occurs here</span><span style="color:#c0c5ce;">
+   |         returning this value requires that `list.integers` is borrowed for `&#39;a`</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+error: aborting due to 2 previous errors</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>Let's take a moment to think why compiler reported these errors.</p>
+<p>The first one says &quot;cannot return value referencing local data&quot;.
+The reference we're trying to return is pointing at the <code>list.integers</code> where <code>list</code> is a local variable in the function.
+For the duration of the function the compiler is right, the data is owned by the function.
+But after that we're returning the <code>list</code>, so it's not the like it is dropped while it is borrowed.
+Maybe the compiler is being too concervative here?
+Let's take a look at the other error.</p>
+<p>The second error says &quot;cannot move out of list because it is borrowed&quot;.
+What happens here:</p>
+<ol>
+<li>We borrow <code>list</code> by referencing <code>&amp;list.integers</code>.</li>
+<li>We move out of <code>list</code> by returning it.</li>
+<li>We use the reference created at step 1. The use is implied - it's not really there but the caller must be able to use the reference we just returned.</li>
+</ol>
+<p>The error format (borrow is created, borrow is invalidated, invalid borrow is used) is called a three point error and <a href="https://rust-lang.github.io/rfcs/2094-nll.html#leveraging-intuition-framing-errors-in-terms-of-points">was introduced by Niko Matsakis in non lexical lifetimes RFC</a>.
+In our case it's not as clearly visible because the third point is implied, but the idea is still there.</p>
+<h2 id="the-move-problem">The move problem</h2>
+<p>The core problem here is that moving a vector invalidates all its borrows.
+&quot;But wait&quot;, you might argue, &quot;vector's items are on the heap and their address does not change, so the references should stay valid&quot;.
+Good point.
+Their addresses indeed do not change.
+But let me ask you a question: how do you know that?
+There's a sentence in the docs saying this, but rustc does not read docs to decide what is undefined behavior and what isn't.
+It only sees the types, functions, and trait implementations.
+<code>Vec</code> could be even defined like this without changing any compiler-checked api:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">Vec&lt;T&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#65737e;">// we&#39;re just going to panic when a</span><span style="color:#c0c5ce;">
+    </span><span style="color:#65737e;">// second item needs to be pushed</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">item</span><span style="color:#c0c5ce;">: Option&lt;T&gt;,</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>In today's rust there's no way around this.
+A move will always invalidate borrows.
+There is no magic api to tell the compiler otherwise, not even in nightly.</p>
+<h2 id="avoiding-moves">Avoiding moves</h2>
+<p>So returnring an initialized value from a function won't work.
+We can try doing the same thing as we tried initially - split up creation of the value and initialization of the self-referential field.
+It's not a very nice solution because you need to call two functions to actually get an initialized value.
+But as we saw a single function is not an option, so we'll have to live with this.</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#c0c5ce;">#[</span><span style="color:#bf616a;">derive</span><span style="color:#c0c5ce;">(Debug)]</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">ListWithReference&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">integers</span><span style="color:#c0c5ce;">: Vec&lt;</span><span style="color:#b48ead;">i32</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">reference</span><span style="color:#c0c5ce;">: &amp;</span><span style="color:#b48ead;">&#39;a i32</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">impl</span><span style="color:#c0c5ce;">&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; ListWithReference&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">new</span><span style="color:#c0c5ce;">() -&gt; </span><span style="color:#b48ead;">Self </span><span style="color:#c0c5ce;">{</span><span style="color:#c0c5ce;">
+        ListWithReference {</span><span style="color:#c0c5ce;">
+            integers: vec![</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">],</span><span style="color:#c0c5ce;">
+            reference: &amp;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+        }</span><span style="color:#c0c5ce;">
+    }</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">init</span><span style="color:#c0c5ce;">(&amp;</span><span style="color:#b48ead;">&#39;a mut </span><span style="color:#bf616a;">self</span><span style="color:#c0c5ce;">) {</span><span style="color:#c0c5ce;">
+        </span><span style="color:#bf616a;">self</span><span style="color:#c0c5ce;">.reference = &amp;</span><span style="color:#bf616a;">self</span><span style="color:#c0c5ce;">.integers[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];</span><span style="color:#c0c5ce;">
+    }</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">let mut</span><span style="color:#c0c5ce;"> list = ListWithReference::new();</span><span style="color:#c0c5ce;">
+    list.</span><span style="color:#96b5b4;">init</span><span style="color:#c0c5ce;">();</span><span style="color:#c0c5ce;">
+    println!(&quot;</span><span style="color:#d08770;">{:?}</span><span style="color:#c0c5ce;">&quot;, list);</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>This should work, right?</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">&gt; cargo run</span><span style="color:#c0c5ce;">
+   Compiling self-referential v0.1.0</span><span style="color:#c0c5ce;">
+error[E0502]: cannot borrow `list` as immutable because it is also borrowed as mutable</span><span style="color:#c0c5ce;">
+  --&gt; src\main.rs:23:22</span><span style="color:#c0c5ce;">
+   |</span><span style="color:#c0c5ce;">
+22 |     list.init();</span><span style="color:#c0c5ce;">
+   |     ---- mutable borrow occurs here</span><span style="color:#c0c5ce;">
+23 |     println!(&quot;{:?}&quot;, list);</span><span style="color:#c0c5ce;">
+   |                      ^^^^</span><span style="color:#c0c5ce;">
+   |                      |</span><span style="color:#c0c5ce;">
+   |                      immutable borrow occurs here</span><span style="color:#c0c5ce;">
+   |                      mutable borrow later used here</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+error: aborting due to previous error</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>Aaaaaaaahhhh.</p>
+<p>Anyway, let's figure out what this error says.
+There's the same 3 points - initial borrow, invalidation, and second use - but the latter two are at the same point.
+Why is the borrow extending from <code>list.init()</code> to the print?
+Suppose that the type of <code>list</code> is <code>ListWithReference&lt;'x&gt;</code>, we are interested in the lifetime <code>'x</code> specifically.
+When we are printing the list it needs to be valid, so <code>'x</code> extends at least to the print statement.
+Now note the signature of <code>init</code>: it takes <code>&amp;'a mut self</code>.
+To be precise, the parameter type is <code>&amp;'a mut ListWithReference&lt;'a&gt;</code> for any lifetime <code>'a</code> (because <code>'a</code> is a generic parameter on the impl, so the caller can pick any lifetime).
+We have a <code>ListWithReference&lt;'x&gt;</code>, so we need to substitute <code>'x</code> for <code>'a</code>.
+The actual parameter type then becomes <code>&amp;'x mut ListWithReference&lt;'x&gt;</code>.
+But we already saw that <code>'x</code> needs to extend to include print statement - thus the borrow from <code>list.init()</code> will extend up to there and make our program invalid.</p>
+<p>This problem is visible right in the <code>init</code> signature: we are giving the list that is valid for lifetime <code>'a</code>, and the duration of the borrow is also <code>'a</code> - so the borrow will last for as long as the value is valid!
+And because the borrow is unique (as it is a <code>mut</code> reference) we won't be able to use the value at all.
+We migth as well just given the list to <code>init</code> by value.</p>
+<p>What we really wanted to have here is that while <code>init</code> borrows the list for <code>'a</code>, the unique borrow should only last for the duration for the call and after that be downgraded to a shared borrow.
+Alas, this is also not possible in today's rust.
+We can work around that by just taking a shared reference and using interior mutability:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#b48ead;">use </span><span style="color:#c0c5ce;">std::cell::Cell;</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+#[</span><span style="color:#bf616a;">derive</span><span style="color:#c0c5ce;">(Debug)]</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">ListWithReference&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">integers</span><span style="color:#c0c5ce;">: Vec&lt;</span><span style="color:#b48ead;">i32</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">reference</span><span style="color:#c0c5ce;">: Cell&lt;&amp;</span><span style="color:#b48ead;">&#39;a i32</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">impl</span><span style="color:#c0c5ce;">&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; ListWithReference&lt;</span><span style="color:#b48ead;">&#39;a</span><span style="color:#c0c5ce;">&gt; {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">new</span><span style="color:#c0c5ce;">() -&gt; </span><span style="color:#b48ead;">Self </span><span style="color:#c0c5ce;">{</span><span style="color:#c0c5ce;">
+        ListWithReference {</span><span style="color:#c0c5ce;">
+            integers: vec![</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">],</span><span style="color:#c0c5ce;">
+            reference: Cell::new(&amp;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">),</span><span style="color:#c0c5ce;">
+        }</span><span style="color:#c0c5ce;">
+    }</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">init</span><span style="color:#c0c5ce;">(&amp;</span><span style="color:#b48ead;">&#39;a </span><span style="color:#bf616a;">self</span><span style="color:#c0c5ce;">) {</span><span style="color:#c0c5ce;">
+        </span><span style="color:#bf616a;">self</span><span style="color:#c0c5ce;">.reference.</span><span style="color:#96b5b4;">set</span><span style="color:#c0c5ce;">(&amp;</span><span style="color:#bf616a;">self</span><span style="color:#c0c5ce;">.integers[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">]);</span><span style="color:#c0c5ce;">
+    }</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> list = ListWithReference::new();</span><span style="color:#c0c5ce;">
+    list.</span><span style="color:#96b5b4;">init</span><span style="color:#c0c5ce;">();</span><span style="color:#c0c5ce;">
+    println!(&quot;</span><span style="color:#d08770;">{:?}</span><span style="color:#c0c5ce;">&quot;, list);</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>Not great, but least it works. Also we still can't move the value as technically it is permanently borrowed, so we can only give out shared references.</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">&gt; cargo run</span><span style="color:#c0c5ce;">
+   Compiling self-referential v0.1.0</span><span style="color:#c0c5ce;">
+    Finished dev [unoptimized + debuginfo] target(s) in 0.66s</span><span style="color:#c0c5ce;">
+     Running `target\debug\self-referential.exe`</span><span style="color:#c0c5ce;">
+ListWithReference { integers: [2, 3, 5, 7], reference: Cell { value: 5 } }</span><span style="color:#c0c5ce;">
+</span></code></pre><h2 id="allowing-moves">Allowing &quot;moves&quot;</h2>
+<p>We've got a working self-referential type, but the main limitation is still that we can't move out of the spot where it is initialized.</p>
+<p>But here's an idea: we saw that having a <code>&amp;'a Foo&lt;'a&gt;</code> is pretty much as good as owning the value - the reference is valid for as long as the value itself.
+If we could somehow return this from the constructor then the caller would be free to put the reference wherever they want. But what would be the actual owner of the value? If the value is owned by something on the stack then it still couldn't be returned our of the function that initialized it.</p>
+<p>Let's turn to the good old <a href="https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak"><code>Box::leak</code></a>.</p>
+<p><code>Box::leak</code> essentially gives us a function <code>fn(T) -&gt; &amp;'static mut T</code>.
+We can give it an owned value and get back a reference that is valid forever.
+The value is essentially not owned by anything, which means that we won't even have an ability to attempt a move - so we will be able to return the reference to the caller without those pesky &quot;value used after move&quot;.
+Of course, there's the downside of a memory leak every time we construct such value, but let's do this anyway:</p>
+<pre style="background-color:#2b303b;">
+<code class="language-rust" data-lang="rust"><span style="color:#c0c5ce;">#[</span><span style="color:#bf616a;">derive</span><span style="color:#c0c5ce;">(Debug)]</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">struct </span><span style="color:#c0c5ce;">ListWithReference {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">integers</span><span style="color:#c0c5ce;">: Vec&lt;</span><span style="color:#b48ead;">i32</span><span style="color:#c0c5ce;">&gt;,</span><span style="color:#c0c5ce;">
+    </span><span style="color:#bf616a;">reference</span><span style="color:#c0c5ce;">: &amp;</span><span style="color:#b48ead;">&#39;static i32</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">impl </span><span style="color:#c0c5ce;">ListWithReference {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">new</span><span style="color:#c0c5ce;">() -&gt; &amp;</span><span style="color:#b48ead;">&#39;static Self </span><span style="color:#c0c5ce;">{</span><span style="color:#c0c5ce;">
+        </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> list = Box::leak(Box::new(ListWithReference {</span><span style="color:#c0c5ce;">
+            integers: vec![</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">3</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">5</span><span style="color:#c0c5ce;">, </span><span style="color:#d08770;">7</span><span style="color:#c0c5ce;">],</span><span style="color:#c0c5ce;">
+            reference: &amp;</span><span style="color:#d08770;">0</span><span style="color:#c0c5ce;">,</span><span style="color:#c0c5ce;">
+        }));</span><span style="color:#c0c5ce;">
+        list.reference = &amp;list.integers[</span><span style="color:#d08770;">2</span><span style="color:#c0c5ce;">];</span><span style="color:#c0c5ce;">
+        list</span><span style="color:#c0c5ce;">
+    }</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span><span style="color:#c0c5ce;">
+</span><span style="color:#b48ead;">fn </span><span style="color:#8fa1b3;">main</span><span style="color:#c0c5ce;">() {</span><span style="color:#c0c5ce;">
+    </span><span style="color:#b48ead;">let</span><span style="color:#c0c5ce;"> list = ListWithReference::new();</span><span style="color:#c0c5ce;">
+    println!(&quot;</span><span style="color:#d08770;">{:?}</span><span style="color:#c0c5ce;">&quot;, list);</span><span style="color:#c0c5ce;">
+}</span><span style="color:#c0c5ce;">
+</span></code></pre>
+<p>And it works!
+We didn't even need the <code>Cell</code> because within a single function borrow checker is smart enough to see that mutable borrow does not need to be long.</p>
+<pre style="background-color:#2b303b;">
+<code><span style="color:#c0c5ce;">&gt; cargo run</span><span style="color:#c0c5ce;">
+   Compiling self-referential v0.1.0</span><span style="color:#c0c5ce;">
+    Finished dev [unoptimized + debuginfo] target(s) in 0.61s</span><span style="color:#c0c5ce;">
+     Running `target\debug\self-referential.exe`</span><span style="color:#c0c5ce;">
+ListWithReference { integers: [2, 3, 5, 7], reference: 5 }</span><span style="color:#c0c5ce;">
+</span></code></pre><h2 id="conclusion">Conclusion</h2>
+<p><code>Box::leak</code> goes brrr</p>
+<p>[TODO: write]</p>
+
+  </div>
+
+	
+
+  <div class="pagination">
+  	
+		<a href="#" class="top">Top</a>
+		
+  </div>
+
+  </main>
+
+  <!-- 
+  <footer>
+    <span>&copy; 2021 Aaran Xu. Made with <a href="https://www.getzola.org">Zola</a> using the <a
+          href="https://github.com/aaranxu/tale-zola">Tale-Zola</a> theme.</span>
+  </footer>
+   -->
+</body>
+</html>
